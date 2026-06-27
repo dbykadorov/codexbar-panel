@@ -20,16 +20,19 @@ x86_64 and aarch64.
 
 ## Quick start (per machine)
 
+`install.sh` is a **single self-contained file** — `panel-usage` is embedded in
+it, so copying just that one script is enough.
+
 ```bash
-# 1. get this folder onto the machine (git clone, scp, rsync, ...)
-#    e.g. scp -r codexbar-panel/ user@host:~/Apps/
+# 1. copy the single file onto the machine (scp / curl / paste):
+scp install.sh user@host:~/
 
 # 2. make sure the provider CLIs are logged in (one-time, interactive):
 codex login        # https://github.com/openai/codex
 claude login       # Claude Code CLI
 
 # 3. run the installer (idempotent — safe to re-run / re-run after updates):
-~/Apps/codexbar-panel/install.sh
+bash ~/install.sh
 
 # 4. Wayland only: log out and back in once so GNOME loads the new extensions.
 ```
@@ -88,8 +91,10 @@ every run.
 
 ## Customizing the look
 
-All knobs are constants at the top of `~/.local/bin/panel-usage`
-(edit there, or edit the copy in this folder and re-run `install.sh`):
+All knobs are constants at the top of the `panel-usage` body. For a quick
+runtime tweak edit `~/.local/bin/panel-usage`; to make it **permanent** (survive
+re-installs / roll out to other machines) edit the embedded heredoc inside
+`install.sh` and re-run it.
 
 - Colors: `CX`, `CL` (labels), `GREEN/YELLOW/ORANGE/RED` (severity), `DIM`.
 - Thresholds: function `sev()` (75 / 85 / 95).
@@ -119,12 +124,12 @@ needed (only *installing* a new extension needs a relogin on Wayland).
 
 ## Rollout to several machines
 
-The script is idempotent, so the simplest flow is:
+One self-contained file + idempotent, so the simplest flow is:
 
 ```bash
 for h in host1 host2 host3; do
-  rsync -a ~/Apps/codexbar-panel/ "$h:~/Apps/codexbar-panel/"
-  ssh "$h" '~/Apps/codexbar-panel/install.sh'
+  scp install.sh "$h:~/install.sh"
+  ssh "$h" 'bash ~/install.sh'
   # then on each: codex login / claude login (if not already), and relogin once
 done
 ```
