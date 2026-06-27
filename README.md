@@ -1,0 +1,134 @@
+# CodexBar panel — Codex + Claude usage in the GNOME top bar
+
+Shows OpenAI **Codex** and Anthropic **Claude** subscription usage (session 5h +
+weekly limits) directly in the GNOME panel, plus a click-popover with details.
+
+```
+Cx 40% 1h27m · wk 18% 4d  │  Cl 4% 3h58m · wk 6% 3d
+```
+
+- Numbers are **heavy/bold**, no-fluff, and colored by severity:
+  `<75` green · `75–84` yellow · `85–94` orange · `≥95` red.
+- Session reset is precise (`1h27m`), weekly reset is coarse (`4d`).
+- Reuses the **already-logged-in** local Codex CLI and Claude CLI credentials.
+  No new API keys are created, and credentials are **not** copied between machines.
+
+Tested on Ubuntu 26.04, GNOME Shell 50, Wayland. Supports GNOME Shell 45–50,
+x86_64 and aarch64.
+
+---
+
+## Quick start (per machine)
+
+```bash
+# 1. get this folder onto the machine (git clone, scp, rsync, ...)
+#    e.g. scp -r codexbar-panel/ user@host:~/Apps/
+
+# 2. make sure the provider CLIs are logged in (one-time, interactive):
+codex login        # https://github.com/openai/codex
+claude login       # Claude Code CLI
+
+# 3. run the installer (idempotent — safe to re-run / re-run after updates):
+~/Apps/codexbar-panel/install.sh
+
+# 4. Wayland only: log out and back in once so GNOME loads the new extensions.
+```
+
+Check it without changing anything:
+
+```bash
+~/Apps/codexbar-panel/install.sh --status
+panel-usage | sed -E 's/<[^>]+>//g'     # preview the panel line in plain text
+```
+
+---
+
+## What gets installed
+
+| Component | Path | Role |
+|---|---|---|
+| steipete CodexBar CLI | `~/.local/bin/codexbar-cli` | fetches multi-provider usage (static musl build) |
+| `panel-usage` | `~/.local/bin/panel-usage` | renders the compact Pango line for the panel |
+| CodexBar extension | `codexbar@inled.es` (EGO 9841) | click-popover with per-provider detail |
+| Executor extension | `executor@raujonas.github.io` (EGO 2932) | runs `panel-usage` and shows it inline |
+
+The installer also: enables the `codex`+`claude` providers (`config enable`),
+`chmod 600` on `~/.config/codexbar/config.json`, writes the extensions'
+`gsettings`, sets `disable-user-extensions=false`, and adds both UUIDs to
+`org.gnome.shell enabled-extensions`.
+
+Prerequisite tools (the script checks and aborts if missing):
+`curl jq python3 gnome-extensions glib-compile-schemas gsettings unzip dconf tar sha256sum`.
+On Debian/Ubuntu: `sudo apt install curl jq python3 gnome-shell-extension-prefs jq libglib2.0-bin unzip`.
+
+---
+
+## How it works (and two non-obvious gotchas)
+
+**Inline line.** Executor runs commands on an interval and renders their stdout
+in the panel. It only treats output as Pango markup when the output contains the
+token `<executor.markup.true>` — note its regex needs *two dots*, so
+`<executor.markup>` would be printed literally. `panel-usage` emits that token.
+
+**Popover data fix (jq filter).** The `codexbar@inled.es` extension misclassifies
+any payload that has `usage.extraRateWindows` as "Antigravity" and then shows
+those windows (Codex *Spark* / Claude *Daily Routines*, both 0%) instead of the
+real 5h/weekly. So the provider commands pipe the CLI JSON through
+`jq 'map(.usage |= (del(.extraRateWindows) | del(.tertiary) | del(.quaternary)))'`,
+which makes the extension fall back to the real `primary`/`secondary` windows.
+
+**Claude rate-limit resilience.** Anthropic's OAuth usage endpoint rate-limits
+easily. `panel-usage` therefore caches the last-good value per provider in
+`~/.cache/panel-usage/`, only re-polls Claude every `CLAUDE_TTL` (240s), shows a
+fresh-enough cached value in normal color, dims it only after `STALE` (900s), and
+falls back to `—` only when there is nothing cached. Codex is local and polled
+every run.
+
+---
+
+## Customizing the look
+
+All knobs are constants at the top of `~/.local/bin/panel-usage`
+(edit there, or edit the copy in this folder and re-run `install.sh`):
+
+- Colors: `CX`, `CL` (labels), `GREEN/YELLOW/ORANGE/RED` (severity), `DIM`.
+- Thresholds: function `sev()` (75 / 85 / 95).
+- Number weight: `weight="heavy"` in `num()` (use `bold`/`normal` to soften).
+- Poll interval: the `interval` (seconds) in the Executor command — set in
+  `install.sh` (default 120). Claude refresh floor: `CLAUDE_TTL`.
+- Reset precision: `countdown()` (precise vs `coarse=True`).
+
+After editing the in-place script, changes show within one interval — no relogin
+needed (only *installing* a new extension needs a relogin on Wayland).
+
+---
+
+## Troubleshooting
+
+- **Raw `<span ...>` tags show in the panel** → Executor isn't rendering markup;
+  ensure output starts with `<executor.markup.true>` (two dots).
+- **Popover shows 0% / "Antigravity User"** → the jq filter isn't applied; re-run
+  `install.sh` (it rewrites the provider commands).
+- **Nothing appears after install** → Wayland needs a logout/login; also check
+  `gsettings get org.gnome.shell disable-user-extensions` is `false`.
+- **`Cl —` or grey Claude** → Anthropic rate-limit; it self-heals. Hard reset:
+  `claude logout && claude login`.
+- **Codex/Claude tile empty** → not logged in: `codex login` / `claude login`.
+
+---
+
+## Rollout to several machines
+
+The script is idempotent, so the simplest flow is:
+
+```bash
+for h in host1 host2 host3; do
+  rsync -a ~/Apps/codexbar-panel/ "$h:~/Apps/codexbar-panel/"
+  ssh "$h" '~/Apps/codexbar-panel/install.sh'
+  # then on each: codex login / claude login (if not already), and relogin once
+done
+```
+
+Credentials are intentionally per-machine. Either run `codex login` / `claude
+login` on each host, or copy `~/.codex` and `~/.claude` yourself if your
+subscription terms allow sharing a session across machines.
