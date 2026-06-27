@@ -108,6 +108,20 @@ needed (only *installing* a new extension needs a relogin on Wayland).
 
 ---
 
+## Uninstall / rollback
+
+```bash
+./uninstall.sh                    # remove our bits; keep the Executor extension
+./uninstall.sh --remove-executor  # also remove Executor itself
+./uninstall.sh --dry-run          # show what would happen, change nothing
+```
+
+Removes `codexbar-cli`, `panel-usage`, the cache, `~/.config/codexbar`, the
+CodexBar popover extension, and strips the `panel-usage` command from Executor.
+On purpose it does **not** touch your `~/.codex` / `~/.claude` logins, the global
+`disable-user-extensions` flag, or any other Executor commands. Log out/in once
+(Wayland) to fully unload the removed extension.
+
 ## Troubleshooting
 
 - **Raw `<span ...>` tags show in the panel** → Executor isn't rendering markup;
