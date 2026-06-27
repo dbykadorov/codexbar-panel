@@ -133,6 +133,11 @@ On purpose it does **not** touch your `~/.codex` / `~/.claude` logins, the globa
 - **`Cl —` or grey Claude** → Anthropic rate-limit; it self-heals. Hard reset:
   `claude logout && claude login`.
 - **Codex/Claude tile empty** → not logged in: `codex login` / `claude login`.
+- **Inline line is clipped/overlapped by tray icons** → it must be in the LEFT
+  panel box (the installer sets that). If it ever clips there too (long line +
+  wide center clock, or briefly right after login while the panel settles), it
+  usually resolves on its own; to make it shorter, edit the format in the
+  `panel-usage` heredoc (e.g. drop the weekly reset or the `wk` labels).
 
 ---
 

@@ -62,24 +62,30 @@ if [ "$REMOVE_EXECUTOR" = 0 ] && [ -d "$SD_EX" ]; then
   DRY="$DRY" SD_EX="$SD_EX" CMD_UUID="$PANEL_CMD_UUID" python3 - <<'PY'
 import os, ast, json, subprocess
 sd, cmd_uuid, dry = os.environ["SD_EX"], os.environ["CMD_UUID"], os.environ["DRY"]
-raw = subprocess.check_output(["gsettings","--schemadir",sd,"get",
-    "org.gnome.shell.extensions.executor","right-commands-json"]).decode().strip()
-try:
-    obj = json.loads(ast.literal_eval(raw))         # GVariant string -> JSON
-except Exception:
-    obj = {"commands": []}
-cmds = obj.get("commands", [])
-kept = [c for c in cmds if c.get("uuid") != cmd_uuid and "panel-usage" not in c.get("command","")]
-if len(kept) == len(cmds):
-    print("    Executor: no panel-usage command found"); raise SystemExit
-obj["commands"] = kept
-val = json.dumps(obj)
-if dry == "1":
-    print("    [dry] executor right-commands-json -> " + val)
-else:
-    subprocess.check_call(["gsettings","--schemadir",sd,"set",
-        "org.gnome.shell.extensions.executor","right-commands-json",val])
-    print("    Executor: panel-usage command removed (%d command(s) left)" % len(kept))
+def gv(key):
+    return subprocess.check_output(["gsettings","--schemadir",sd,"get",
+        "org.gnome.shell.extensions.executor",key]).decode().strip()
+removed_any = False
+# our command may live in either box depending on install version
+for key in ("left-commands-json", "right-commands-json"):
+    try:
+        obj = json.loads(ast.literal_eval(gv(key)))
+    except Exception:
+        continue
+    cmds = obj.get("commands", [])
+    kept = [c for c in cmds if c.get("uuid") != cmd_uuid and "panel-usage" not in c.get("command", "")]
+    if len(kept) == len(cmds):
+        continue
+    obj["commands"] = kept
+    removed_any = True
+    if dry == "1":
+        print("    [dry] executor %s -> %s" % (key, json.dumps(obj)))
+    else:
+        subprocess.check_call(["gsettings","--schemadir",sd,"set",
+            "org.gnome.shell.extensions.executor", key, json.dumps(obj)])
+        print("    Executor: panel-usage removed from %s (%d left)" % (key, len(kept)))
+if not removed_any:
+    print("    Executor: no panel-usage command found")
 PY
   log "Executor command stripped"
 fi

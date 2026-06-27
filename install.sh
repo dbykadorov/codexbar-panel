@@ -352,9 +352,12 @@ print(json.dumps({"commands": [{
 }]}))
 PY
 )"
-gsettings --schemadir "$SD_EX" set org.gnome.shell.extensions.executor right-commands-json "$EX_CMDS"
-gsettings --schemadir "$SD_EX" set org.gnome.shell.extensions.executor right-active true
-log "executor inline command configured (right slot, 120s)"
+# Use the LEFT panel box: the right/status box is cramped next to the tray icons
+# and clips this (fairly long) two-provider line; the left box has open space.
+gsettings --schemadir "$SD_EX" set org.gnome.shell.extensions.executor left-commands-json "$EX_CMDS"
+gsettings --schemadir "$SD_EX" set org.gnome.shell.extensions.executor left-active true
+gsettings --schemadir "$SD_EX" set org.gnome.shell.extensions.executor right-commands-json '{"commands":[]}'
+log "executor inline command configured (left slot, 120s)"
 
 # ---------------------------------------------------------------- 10. enable extensions
 gsettings set org.gnome.shell disable-user-extensions false
