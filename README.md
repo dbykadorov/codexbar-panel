@@ -4,7 +4,7 @@ Shows OpenAI **Codex** and Anthropic **Claude** subscription usage (session 5h +
 weekly limits) directly in the GNOME panel, plus a click-popover with details.
 
 ```
-Cx 40% 1h27m · wk 18% 4d  │  Cl 4% 3h58m · wk 6% 3d
+Cx 40% 1h27m · 18% 4d  │  Cl 4% 3h58m · 6% 3d
 ```
 
 - Numbers are **heavy/bold**, no-fluff, and colored by severity:

@@ -257,7 +257,7 @@ def live_body(d):
     if cd:
         out += " " + cd
     if d.get("wp") is not None:
-        out += " · wk " + num(d["wp"])
+        out += " · " + num(d["wp"])
         wcd = countdown(d.get("wreset"), coarse=True)
         if wcd:
             out += " " + wcd
@@ -270,7 +270,7 @@ def dim_text(d):
     if cd:
         txt += " " + cd
     if d.get("wp") is not None:
-        txt += " · wk " + plain(d["wp"])
+        txt += " · " + plain(d["wp"])
         wcd = countdown(d.get("wreset"), coarse=True)
         if wcd:
             txt += " " + wcd
