@@ -198,7 +198,13 @@ def parse(p):
     w = u.get("secondary") or {}
     sp = s.get("usedPercent")
     if sp is None:
-        return None
+        # Codex dropped its 5h `primary` window (returns null) and now exposes
+        # only the weekly `secondary`. Promote the weekly to the lead number so
+        # the segment keeps updating instead of freezing on stale cache.
+        wp = w.get("usedPercent")
+        if wp is None:
+            return None
+        return {"sp": wp, "sreset": w.get("resetsAt"), "wp": None, "wreset": None}
     return {
         "sp": sp, "sreset": s.get("resetsAt"),
         "wp": w.get("usedPercent"), "wreset": w.get("resetsAt"),
