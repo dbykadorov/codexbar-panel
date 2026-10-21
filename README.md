@@ -4,12 +4,12 @@ Shows OpenAI **Codex** and Anthropic **Claude** subscription usage (session 5h +
 weekly limits) directly in the GNOME panel, plus a click-popover with details.
 
 ```
-Cx 40% 1h27m · 18% 4d  │  Cl 4% 3h58m · 6% 3d
+Cx 40% 1h27m · 18% 4d5h  │  Cl 4% 3h58m · 6% 3d2h
 ```
 
 - Numbers are **heavy/bold**, no-fluff, and colored by severity:
   `<75` green · `75–84` yellow · `85–94` orange · `≥95` red.
-- Session reset is precise (`1h27m`), weekly reset is coarse (`4d`).
+- Reset countdowns are precise for both windows (`1h27m`, `4d22h`).
 - Reuses the **already-logged-in** local Codex CLI and Claude CLI credentials.
   No new API keys are created, and credentials are **not** copied between machines.
 

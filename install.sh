@@ -112,7 +112,7 @@ cat > "$BIN_DIR/panel-usage" <<'PANEL_EOF'
 Emits Pango markup (Executor renders it when the output contains the literal
 token <executor.markup.true>). Usage numbers keep the % sign, are heavy weight,
 and are colored by a 4-tier severity: <75 green, 75-84 yellow, 85-94 orange,
->=95 red. Session reset is precise (1h27m), weekly reset coarse (4d).
+>=95 red. Resets are precise: 1h27m, 4d22h.
 
 Rate-limit resilience: each provider's last-good value is cached with a
 timestamp. Claude's OAuth endpoint is touchy, so it is only re-fetched when its
@@ -264,7 +264,7 @@ def live_body(d):
         out += " " + cd
     if d.get("wp") is not None:
         out += " · " + num(d["wp"])
-        wcd = countdown(d.get("wreset"), coarse=True)
+        wcd = countdown(d.get("wreset"))
         if wcd:
             out += " " + wcd
     return out
@@ -277,7 +277,7 @@ def dim_text(d):
         txt += " " + cd
     if d.get("wp") is not None:
         txt += " · " + plain(d["wp"])
-        wcd = countdown(d.get("wreset"), coarse=True)
+        wcd = countdown(d.get("wreset"))
         if wcd:
             txt += " " + wcd
     return txt
