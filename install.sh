@@ -25,9 +25,6 @@ EXT_DIR="$HOME/.local/share/gnome-shell/extensions"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/codexbar/config.json"
 # Fixed id so re-runs produce identical Executor config (true idempotency).
 PANEL_CMD_UUID="7f3e1c20-0001-4000-9000-panelusage01"
-# jq filter that strips the windows which confuse the inled extension's
-# antigravity-detection (it would otherwise show 0% Spark/Daily-Routines).
-JQ_FILTER='map(.usage |= (del(.extraRateWindows) | del(.tertiary) | del(.quaternary)))'
 
 c_green=$'\033[1;32m'; c_yellow=$'\033[1;33m'; c_red=$'\033[1;31m'; c_off=$'\033[0m'
 log()  { printf '%s==>%s %s\n' "$c_green"  "$c_off" "$*"; }
@@ -120,7 +117,7 @@ cache is older than CLAUDE_TTL; a fresh-enough cache is shown in NORMAL color
 (no flicker to gray). Only genuinely stale data (> STALE) is dimmed; if there is
 nothing cached at all we show an em dash.
 """
-import os, sys, json, time, subprocess, datetime
+import os, sys, json, time, subprocess, datetime, math
 
 HOME = os.path.expanduser("~")
 BIN = os.environ.get("CODEXBAR_CLI", os.path.join(HOME, ".local/bin/codexbar-cli"))
@@ -133,6 +130,89 @@ GREEN, YELLOW, ORANGE, RED = "#98c379", "#e5c07b", "#d19a66", "#e06c75"
 
 CLAUDE_TTL = 240   # don't re-poll Claude if cache younger than this (s)
 STALE = 900        # dim a cached value once it is older than this (s)
+
+
+WEEK_MINUTES = 7 * 24 * 60
+
+
+def weekly_pace(used, reset, minutes=WEEK_MINUTES, now=None):
+    """Reserve in percentage points and seconds to exhaustion at window-average pace."""
+    try:
+        used, duration = float(used), float(minutes) * 60
+        end_time = datetime.datetime.fromisoformat(reset.replace("Z", "+00:00"))
+        if end_time.tzinfo is None:
+            return None
+        remaining = end_time.timestamp() - (time.time() if now is None else now)
+        if not all(math.isfinite(v) for v in (used, duration, remaining)):
+            return None
+        if not 0 <= used <= 100 or not 0 < remaining < duration:
+            return None
+        reserve = 100 - used - 100 * remaining / duration
+        exhaustion = (duration - remaining) * (100 - used) / used if used else None
+        return {"reserve": reserve, "exhaustion": exhaustion, "remaining": remaining}
+    except (ValueError, TypeError, AttributeError, OverflowError, OSError):
+        return None
+
+
+def pace_label(pace):
+    points = int(math.floor(abs(pace["reserve"]) + 0.5))
+    return ("-" if pace["reserve"] < 0 and points else "+" if points else "") + str(points) + "pp"
+
+
+def weekly_suffix(d, markup=False, window="weekly"):
+    pace = weekly_pace(d.get(window + "_used"), d.get(window + "_reset"),
+                       d.get(window + "_minutes", WEEK_MINUTES if window == "weekly" else 300))
+    if pace is None:
+        return ""
+    label = " (" + pace_label(pace) + ")"
+    if markup:
+        color = ORANGE if pace["reserve"] < -0.5 else GREEN
+        return '<span foreground="%s">%s</span>' % (color, label)
+    return label
+
+
+def duration_text(seconds):
+    mins = max(0, int(seconds // 60))
+    days, mins = divmod(mins, 1440)
+    hours, mins = divmod(mins, 60)
+    return ((str(days) + "d ") if days else "") + str(hours) + "h " + str(mins) + "m"
+
+
+def provider_json(provider):
+    """Enrich fresh CLI output using the extension's provider-details interface."""
+    result = subprocess.run([BIN, "usage", "--provider", provider, "--source", "oauth", "--json"],
+                            capture_output=True, text=True, timeout=45)
+    if result.returncode:
+        raise RuntimeError("usage command failed")
+    payload = json.loads(result.stdout)
+    for entry in payload:
+        if entry.get("provider") != provider or entry.get("error"):
+            continue
+        usage = entry.get("usage") or {}
+        windows = [("secondary", "Weekly pace", WEEK_MINUTES)]
+        if provider == "claude":
+            windows.insert(0, ("primary", "5h pace", 300))
+        for key, title, default_minutes in windows:
+            window = usage.get(key) or {}
+            pace = weekly_pace(window.get("usedPercent"), window.get("resetsAt"),
+                               window.get("windowMinutes", default_minutes))
+            if pace:
+                exhaustion = pace["exhaustion"]
+                forecast = ("No usage yet" if exhaustion is None else
+                            "Runs out in " + duration_text(exhaustion) if exhaustion < pace["remaining"] else
+                            "Lasts until reset at current average pace")
+                details = usage.get("details")
+                if not isinstance(details, list):
+                    details = []
+                usage["details"] = details + [{"title": title, "rows": [
+                    {"label": "Reserve vs time left", "value": pace_label(pace),
+                     "secondaryValue": "Negative = ahead of even spending; positive = spare quota."},
+                    {"label": "Forecast", "value": forecast,
+                     "secondaryValue": "Based on average usage since this window began; changes with usage."},
+                ]}]
+        for key in ("extraRateWindows", "tertiary", "quaternary"):
+            usage.pop(key, None)
+    print(json.dumps(payload))
 
 
 def countdown(iso, coarse=False):
@@ -196,6 +276,8 @@ def parse(p):
     u = (p or {}).get("usage", {}) or {}
     s = u.get("primary") or {}
     w = u.get("secondary") or {}
+    weekly = {"weekly_used": w.get("usedPercent"), "weekly_reset": w.get("resetsAt"),
+              "weekly_minutes": w.get("windowMinutes", WEEK_MINUTES)}
     sp = s.get("usedPercent")
     if sp is None:
         # Codex dropped its 5h `primary` window (returns null) and now exposes
@@ -204,10 +286,12 @@ def parse(p):
         wp = w.get("usedPercent")
         if wp is None:
             return None
-        return {"sp": wp, "sreset": w.get("resetsAt"), "wp": None, "wreset": None}
+        return {"sp": wp, "sreset": w.get("resetsAt"), "wp": None, "wreset": None, **weekly}
     return {
         "sp": sp, "sreset": s.get("resetsAt"),
-        "wp": w.get("usedPercent"), "wreset": w.get("resetsAt"),
+        "wp": w.get("usedPercent"), "wreset": w.get("resetsAt"), **weekly,
+        **({"session_used": sp, "session_reset": s.get("resetsAt"),
+            "session_minutes": s.get("windowMinutes", 300)} if p.get("provider") == "claude" else {}),
     }
 
 
@@ -262,12 +346,13 @@ def live_body(d):
     cd = countdown(d.get("sreset"))
     if cd:
         out += " " + cd
+    out += weekly_suffix(d, markup=True, window="session")
     if d.get("wp") is not None:
         out += " · " + num(d["wp"])
         wcd = countdown(d.get("wreset"))
         if wcd:
             out += " " + wcd
-    return out
+    return out + weekly_suffix(d, markup=True)
 
 
 def dim_text(d):
@@ -289,7 +374,7 @@ def seg(label, color, d, fresh):
     if fresh:
         return '<span foreground="%s" weight="bold">%s</span> %s' % (color, label, live_body(d))
     return ('<span foreground="%s" weight="bold">%s</span> '
-            '<span foreground="%s">%s</span>') % (DIM, label, DIM, dim_text(d))
+            '<span foreground="%s">%s</span>') % (DIM, label, DIM, dim_text(d) + " [stale]")
 
 
 def main():
@@ -303,7 +388,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--provider-json" and sys.argv[2] in ("codex", "claude"):
+        try:
+            provider_json(sys.argv[2])
+        except (ValueError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError):
+            print("Unable to fetch provider usage", file=sys.stderr)
+            sys.exit(1)
+    else:
+        main()
 PANEL_EOF
 chmod 755 "$BIN_DIR/panel-usage"
 log "panel-usage -> $BIN_DIR/panel-usage (embedded)"
@@ -335,16 +427,22 @@ SD_CB="$EXT_DIR/$CODEXBAR_UUID/schemas"
 SD_EX="$EXT_DIR/$EXECUTOR_UUID/schemas"
 
 # ---------------------------------------------------------------- 8. gsettings: codexbar popover
-CB_PROVIDERS="$(BIN_DIR="$BIN_DIR" JQ_FILTER="$JQ_FILTER" python3 - <<'PY'
-import json, os
-b, flt = os.environ["BIN_DIR"], os.environ["JQ_FILTER"]
-cmd = lambda p: f"{b}/codexbar-cli --provider {p} --source oauth --format json | jq -c '{flt}'"
+CB_PROVIDERS="$(BIN_DIR="$BIN_DIR" python3 - <<'PY'
+import json, os, shlex
+b = os.environ["BIN_DIR"]
+cmd = lambda p: shlex.join([f"{b}/panel-usage", "--provider-json", p])
 print(json.dumps([{"name": "Codex", "command": cmd("codex")},
                   {"name": "Claude", "command": cmd("claude")}]))
 PY
 )"
 gsettings --schemadir "$SD_CB" set org.gnome.shell.extensions.codexbar providers "$CB_PROVIDERS"
 gsettings --schemadir "$SD_CB" set org.gnome.shell.extensions.codexbar first-run false
+# Older extension versions may not expose provider detail sections.
+if gsettings --schemadir "$SD_CB" list-keys org.gnome.shell.extensions.codexbar | grep -qx show-provider-details; then
+  gsettings --schemadir "$SD_CB" set org.gnome.shell.extensions.codexbar show-provider-details true
+else
+  warn "extension has no provider details support; weekly pace remains available inline"
+fi
 log "codexbar popover providers configured"
 
 # ---------------------------------------------------------------- 9. gsettings: executor inline

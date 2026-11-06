@@ -4,7 +4,7 @@ Shows OpenAI **Codex** and Anthropic **Claude** subscription usage (session 5h +
 weekly limits) directly in the GNOME panel, plus a click-popover with details.
 
 ```
-Cx 40% 1h27m · 18% 4d5h  │  Cl 4% 3h58m · 6% 3d2h
+Cx 40% 1h27m · 18% 4d5h (+22pp)  │  Cl 4% 3h58m · 6% 3d2h (+50pp)
 ```
 
 - Numbers are **heavy/bold**, no-fluff, and colored by severity:
@@ -73,12 +73,14 @@ in the panel. It only treats output as Pango markup when the output contains the
 token `<executor.markup.true>` — note its regex needs *two dots*, so
 `<executor.markup>` would be printed literally. `panel-usage` emits that token.
 
-**Popover data fix (jq filter).** The `codexbar@inled.es` extension misclassifies
+**Popover data and weekly pace.** The `codexbar@inled.es` extension misclassifies
 any payload that has `usage.extraRateWindows` as "Antigravity" and then shows
 those windows (Codex *Spark* / Claude *Daily Routines*, both 0%) instead of the
-real 5h/weekly. So the provider commands pipe the CLI JSON through
-`jq 'map(.usage |= (del(.extraRateWindows) | del(.tertiary) | del(.quaternary)))'`,
-which makes the extension fall back to the real `primary`/`secondary` windows.
+real 5h/weekly. The provider commands now run
+`panel-usage --provider-json codex` (or `claude`), which removes those fields
+and adds weekly pace rows through `usage.details`. Existing detail sections are
+preserved. The installer enables `show-provider-details` when supported by the
+extension; older versions still get the inline indicator.
 
 **Claude rate-limit resilience.** Anthropic's OAuth usage endpoint rate-limits
 easily. `panel-usage` therefore caches the last-good value per provider in
@@ -86,6 +88,38 @@ easily. `panel-usage` therefore caches the last-good value per provider in
 fresh-enough cached value in normal color, dims it only after `STALE` (900s), and
 falls back to `—` only when there is nothing cached. Codex is local and polled
 every run.
+
+## Quota pace and exhaustion forecast
+
+Claude also shows the same indicator immediately after its 5-hour countdown,
+with a separate **5h pace** forecast section in the popover. Its duration comes
+from `windowMinutes`, falling back to 300 minutes. Codex remains weekly-only.
+
+The weekly number is still **used percent**. Its new suffix, e.g. `(-7pp)`,
+is the remaining quota minus the percentage of time left in the window.
+Negative means spending faster than an even pace; positive means spare quota.
+It is a difference in percentage points, not an additional limit.
+
+The popover's **Weekly pace** section also estimates exhaustion using average
+usage since the window began: `elapsed * remaining quota / used quota`.
+It shows a countdown only when exhaustion is earlier than reset, otherwise
+"Lasts until reset at current average pace". Zero usage has no exhaustion
+estimate. This is a conditional forecast, not a guarantee or a recent-usage
+trend; it changes as usage changes.
+
+Calculations use the provider's `windowMinutes`, falling back to seven days
+for the weekly secondary window. Missing/invalid data and reset boundaries
+suppress pace. The weekly-only Codex fallback retains the indicator. Older
+cache entries simply omit it until refreshed. Stale cached output is dimmed,
+marked `[stale]`, and has no pace estimate. Popover data is fetched separately
+and is not served from the inline cache.
+
+Development checks (no installation or provider access):
+
+```bash
+bash -n install.sh uninstall.sh
+python3 -m unittest discover -s tests -v
+```
 
 ---
 
@@ -126,7 +160,7 @@ On purpose it does **not** touch your `~/.codex` / `~/.claude` logins, the globa
 
 - **Raw `<span ...>` tags show in the panel** → Executor isn't rendering markup;
   ensure output starts with `<executor.markup.true>` (two dots).
-- **Popover shows 0% / "Antigravity User"** → the jq filter isn't applied; re-run
+- **Popover shows 0% / "Antigravity User"** → the provider wrapper isn't applied; re-run
   `install.sh` (it rewrites the provider commands).
 - **Nothing appears after install** → Wayland needs a logout/login; also check
   `gsettings get org.gnome.shell disable-user-extensions` is `false`.
